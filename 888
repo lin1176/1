@@ -1,0 +1,1915 @@
+import os
+import re
+import time
+import random
+import threading
+import queue
+import json
+import requests
+import pickle
+import tkinter as tk
+from tkinter import scrolledtext, messagebox, ttk
+from collections import defaultdict, Counter
+from datetime import datetime
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.webdriver.common.action_chains import ActionChains
+import keyboard
+
+# 修复jieba导入问题
+try:
+    import jieba
+    import jieba.analyse
+
+    if not hasattr(jieba, 'lcut'):
+        jieba.lcut = lambda text: list(jieba.cut(text))
+except ImportError:
+    class MockJieba:
+        @staticmethod
+        def lcut(text):
+            return [char for char in text if len(char.strip()) > 0]
+
+
+    jieba = MockJieba()
+
+
+# ==================== 聊天记录深度学习器 ====================
+class ChatRecordLearner:
+    """从真实聊天记录中深度学习"""
+
+    def __init__(self, tex_dir):
+        self.tex_dir = tex_dir
+        self.conversations = []
+        self.my_responses = []
+        self.qa_pairs = []
+        self.learned_patterns = {}
+
+    def learn_from_chat_records(self):
+        """从聊天记录中学习"""
+        print("🎓 开始深度学习聊天记录...")
+
+        if not os.path.exists(self.tex_dir):
+            print(f"⚠️ 目录不存在: {self.tex_dir}")
+            return self._get_default_learning()
+
+        tex_files = [f for f in os.listdir(self.tex_dir) if f.endswith('.tex')]
+        if not tex_files:
+            print(f"⚠️ 未找到.tex文件")
+            return self._get_default_learning()
+
+        print(f"📁 发现 {len(tex_files)} 个聊天文件")
+
+        # 1. 提取所有对话
+        self._extract_all_conversations(tex_files)
+
+        # 2. 分析我的回复风格
+        self._analyze_my_response_style()
+
+        # 3. 学习问答模式
+        self._learn_qa_patterns()
+
+        # 4. 学习业务流程
+        self._learn_business_processes()
+
+        # 5. 学习定价规则
+        self._learn_pricing_rules()
+
+        print(f"✅ 学习完成: {len(self.conversations)}个对话, {len(self.qa_pairs)}个问答对")
+        return self.learned_patterns
+
+    def _extract_all_conversations(self, tex_files):
+        """提取所有对话"""
+        for filename in tex_files:
+            filepath = os.path.join(self.tex_dir, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+
+                lines = content.split('\n')
+                current_conversation = []
+
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith('我：') or line.startswith('客户：'):
+                        role = '我' if line.startswith('我：') else '客户'
+                        message = line[2:].strip()
+
+                        if message and len(message) > 1:
+                            current_conversation.append({
+                                'role': role,
+                                'message': message,
+                                'file': filename
+                            })
+
+                            if role == '我':
+                                self.my_responses.append(message)
+
+                if len(current_conversation) >= 2:
+                    self.conversations.append(current_conversation)
+
+            except Exception as e:
+                print(f"❌ 处理文件 {filename} 出错: {e}")
+
+    def _analyze_my_response_style(self):
+        """分析我的回复风格"""
+        if not self.my_responses:
+            self.learned_patterns['response_style'] = self._get_default_style()
+            return
+
+        print(f"🎭 分析 {len(self.my_responses)} 条回复的风格...")
+
+        # 分析语言特点
+        style_analysis = {
+            'avg_length': sum(len(resp) for resp in self.my_responses) / len(self.my_responses),
+            'common_openings': self._get_common_patterns([resp[:2] for resp in self.my_responses if len(resp) >= 2]),
+            'common_endings': self._get_common_patterns([resp[-2:] for resp in self.my_responses if len(resp) >= 2]),
+            'tone_words': self._extract_tone_words(),
+            'question_style': self._analyze_question_style(),
+            'punctuation_usage': self._analyze_punctuation(),
+            'address_style': self._analyze_address_style(),
+            'enthusiasm_level': self._analyze_enthusiasm_level()
+        }
+
+        self.learned_patterns['response_style'] = style_analysis
+        print(f"📊 风格特点: 平均{style_analysis['avg_length']:.1f}字, 语气词{len(style_analysis['tone_words'])}个")
+
+    def _learn_qa_patterns(self):
+        """学习问答模式"""
+        print("🤔 学习问答模式...")
+
+        qa_patterns = defaultdict(list)
+
+        for conv in self.conversations:
+            for i in range(len(conv) - 1):
+                if conv[i]['role'] == '客户' and conv[i + 1]['role'] == '我':
+                    customer_msg = conv[i]['message']
+                    my_response = conv[i + 1]['message']
+
+                    # 分类客户问题类型
+                    question_type = self._classify_customer_question(customer_msg)
+
+                    qa_patterns[question_type].append({
+                        'customer': customer_msg,
+                        'response': my_response,
+                        'context': self._get_conversation_context(conv, i)
+                    })
+
+                    self.qa_pairs.append({
+                        'customer': customer_msg,
+                        'response': my_response,
+                        'type': question_type
+                    })
+
+        self.learned_patterns['qa_patterns'] = dict(qa_patterns)
+        print(f"📝 学到 {len(qa_patterns)} 种问题类型的回复模式")
+
+    def _learn_business_processes(self):
+        """学习业务流程"""
+        print("💼 学习业务流程...")
+
+        business_processes = {
+            'questionnaire_design_flow': self._extract_questionnaire_flow(),
+            'data_analysis_flow': self._extract_data_analysis_flow(),
+            'pricing_flow': self._extract_pricing_flow(),
+            'requirement_collection': self._extract_requirement_collection(),
+            'payment_flow': self._extract_payment_flow()
+        }
+
+        self.learned_patterns['business_processes'] = business_processes
+        print("📋 学习了问卷设计、数据分析、定价、付款等业务流程")
+
+    def _learn_pricing_rules(self):
+        """学习定价规则"""
+        print("💰 学习定价规则...")
+
+        pricing_rules = {
+            'questionnaire_pricing': self._extract_unified_pricing('问卷'),
+            'data_analysis_pricing': self._extract_unified_pricing('分析'),
+            'data_fill_pricing': self._extract_unified_pricing('代填'),
+            'optimization_pricing': self._extract_unified_pricing('优化')
+        }
+
+        self.learned_patterns['pricing_rules'] = pricing_rules
+        print("💳 学习了各种服务的定价规则")
+
+    def _extract_unified_pricing(self, service_type):
+        """统一的定价提取方法"""
+        pricing_responses = []
+
+        for resp in self.my_responses:
+            if service_type in resp and '元' in resp:
+                pricing_responses.append(resp)
+
+        if service_type == '问卷':
+            pricing_rules = {
+                'base_pricing': '0-10题18元',
+                'increment_rule': '每增10题+18元',
+                'examples': pricing_responses[:5]
+            }
+        elif service_type == '分析':
+            pricing_rules = {
+                'pricing_examples': pricing_responses[:10],
+                'typical_prices': {
+                    '描述性统计': '25元',
+                    '信度分析': '28元',
+                    '效度分析': '28元',
+                    'T检验': '40元',
+                    '相关性分析': '40元',
+                    '方差分析': '55元',
+                    '因子分析': '55元',
+                    '聚类分析': '55元',
+                    '回归分析': '60元',
+                    '卡方检验': '70元',
+                    '中介效应': '90元'
+                }
+            }
+        elif service_type == '代填':
+            pricing_rules = {
+                'pricing_examples': pricing_responses[:5],
+                'typical_rates': {
+                    '机填': '0.35元/份',
+                    '人工': '0.5元/份',
+                    '指定IP': '0.6元/份'
+                }
+            }
+        else:  # 优化
+            pricing_rules = {
+                'pricing_examples': pricing_responses[:3],
+                'base_price': '60元起步'
+            }
+
+        return pricing_rules
+
+    def _get_common_patterns(self, items):
+        """获取常见模式"""
+        counter = Counter(items)
+        return dict(counter.most_common(10))
+
+    def _extract_tone_words(self):
+        """提取语气词"""
+        tone_words = ['好的', '可以', '行', '嗯', '是的', '对', '没问题', '收到']
+        usage = {}
+
+        for word in tone_words:
+            count = sum(1 for resp in self.my_responses if word in resp)
+            if count > 0:
+                usage[word] = count / len(self.my_responses)
+
+        return usage
+
+    def _analyze_question_style(self):
+        """分析提问风格"""
+        questions = [resp for resp in self.my_responses if '？' in resp or '吗' in resp]
+
+        if not questions:
+            return {'style': 'direct', 'examples': []}
+
+        return {
+            'style': 'questioning',
+            'frequency': len(questions) / len(self.my_responses),
+            'examples': questions[:5]
+        }
+
+    def _analyze_punctuation(self):
+        """分析标点使用"""
+        total_chars = sum(len(resp) for resp in self.my_responses)
+        punctuation_count = sum(1 for resp in self.my_responses for char in resp if char in '。！？，')
+
+        return {
+            'usage_rate': punctuation_count / total_chars if total_chars > 0 else 0,
+            'prefers_period': sum(1 for resp in self.my_responses if '。' in resp) > 0,
+            'uses_exclamation': sum(1 for resp in self.my_responses if '！' in resp) > 0
+        }
+
+    def _analyze_address_style(self):
+        """分析称呼风格"""
+        nin_count = sum(1 for resp in self.my_responses if '您' in resp)
+        ni_count = sum(1 for resp in self.my_responses if '你' in resp and '您' not in resp)
+
+        if nin_count > ni_count:
+            return {'style': 'formal', 'preference': '您'}
+        else:
+            return {'style': 'casual', 'preference': '你'}
+
+    def _analyze_enthusiasm_level(self):
+        """分析热情程度"""
+        enthusiasm_indicators = ['哈', '呢', '~', '！', '👍', '😊']
+        total_indicators = sum(1 for resp in self.my_responses
+                               for indicator in enthusiasm_indicators if indicator in resp)
+
+        enthusiasm_rate = total_indicators / len(self.my_responses) if self.my_responses else 0
+
+        if enthusiasm_rate > 0.3:
+            return {'level': 'high', 'rate': enthusiasm_rate}
+        elif enthusiasm_rate > 0.1:
+            return {'level': 'medium', 'rate': enthusiasm_rate}
+        else:
+            return {'level': 'low', 'rate': enthusiasm_rate}
+
+    def _classify_customer_question(self, message):
+        """分类客户问题"""
+        msg_lower = message.lower()
+
+        if any(word in msg_lower for word in ['设计', '做问卷', '编制']):
+            return '问卷设计咨询'
+        elif any(word in msg_lower for word in ['数据分析', 'spss', '分析']):
+            return '数据分析咨询'
+        elif any(word in msg_lower for word in ['代填', '问卷星', '填写']):
+            return '代填服务咨询'
+        elif any(word in msg_lower for word in ['多少钱', '价格', '费用']):
+            return '价格咨询'
+        elif any(word in msg_lower for word in ['时间', '多久', '几天']):
+            return '时间咨询'
+        elif any(word in msg_lower for word in ['售后', '修改', '保障']):
+            return '售后咨询'
+        elif any(word in msg_lower for word in ['你好', '在吗', '咨询']):
+            return '问候'
+        else:
+            return '其他咨询'
+
+    def _get_conversation_context(self, conversation, current_index):
+        """获取对话上下文"""
+        start_index = max(0, current_index - 2)
+        context = []
+
+        for i in range(start_index, current_index):
+            context.append(f"{conversation[i]['role']}: {conversation[i]['message']}")
+
+        return " | ".join(context)
+
+    def _extract_questionnaire_flow(self):
+        """提取问卷设计流程"""
+        questionnaire_conversations = []
+
+        for conv in self.conversations:
+            if any('问卷' in msg['message'] or '设计' in msg['message'] for msg in conv):
+                questionnaire_conversations.append(conv)
+
+        # 分析流程模式
+        flow_patterns = []
+        for conv in questionnaire_conversations[:5]:  # 取前5个分析
+            flow = []
+            for msg in conv:
+                if msg['role'] == '我':
+                    flow.append(msg['message'][:30] + '...' if len(msg['message']) > 30 else msg['message'])
+            flow_patterns.append(flow)
+
+        return {
+            'typical_flows': flow_patterns,
+            'common_questions': self._extract_common_questions_from_flows(questionnaire_conversations)
+        }
+
+    def _extract_data_analysis_flow(self):
+        """提取数据分析流程"""
+        analysis_conversations = []
+
+        for conv in self.conversations:
+            if any('分析' in msg['message'] or 'spss' in msg['message'].lower() for msg in conv):
+                analysis_conversations.append(conv)
+
+        return {
+            'pricing_responses': self._extract_pricing_responses(analysis_conversations),
+            'service_descriptions': self._extract_service_descriptions(analysis_conversations)
+        }
+
+    def _extract_pricing_flow(self):
+        """提取定价流程"""
+        pricing_conversations = []
+
+        for conv in self.conversations:
+            if any('多少钱' in msg['message'] or '价格' in msg['message'] for msg in conv):
+                pricing_conversations.append(conv)
+
+        return {
+            'pricing_responses': [msg['message'] for conv in pricing_conversations
+                                  for msg in conv if msg['role'] == '我' and ('元' in msg['message'])]
+        }
+
+    def _extract_requirement_collection(self):
+        """提取需求收集模式"""
+        requirement_patterns = []
+
+        for resp in self.my_responses:
+            if '需要' in resp and '了解' in resp:
+                requirement_patterns.append(resp)
+            elif '填写' in resp and '信息' in resp:
+                requirement_patterns.append(resp)
+
+        return {
+            'collection_phrases': requirement_patterns[:10],
+            'information_requests': self._extract_information_requests()
+        }
+
+    def _extract_payment_flow(self):
+        """提取付款流程"""
+        payment_responses = []
+
+        for resp in self.my_responses:
+            if any(word in resp for word in ['拍下', '付款', '改价', '右上方']):
+                payment_responses.append(resp)
+
+        return {
+            'payment_phrases': payment_responses[:10],
+            'typical_payment_guide': '右上方拍下别付款，我改价'
+        }
+
+    def _extract_common_questions_from_flows(self, conversations):
+        """从流程中提取常见问题"""
+        questions = []
+
+        for conv in conversations:
+            for msg in conv:
+                if msg['role'] == '我' and ('？' in msg['message'] or '吗' in msg['message']):
+                    questions.append(msg['message'])
+
+        return list(set(questions))[:10]
+
+    def _extract_pricing_responses(self, conversations):
+        """提取定价回复"""
+        responses = []
+
+        for conv in conversations:
+            for msg in conv:
+                if msg['role'] == '我' and '元' in msg['message']:
+                    responses.append(msg['message'])
+
+        return responses[:10]
+
+    def _extract_service_descriptions(self, conversations):
+        """提取服务描述"""
+        descriptions = []
+
+        for conv in conversations:
+            for msg in conv:
+                if msg['role'] == '我' and any(word in msg['message'] for word in ['分析', '可以', '包括']):
+                    descriptions.append(msg['message'])
+
+        return descriptions[:10]
+
+    def _extract_information_requests(self):
+        """提取信息询问模式"""
+        requests = []
+
+        for resp in self.my_responses:
+            if any(word in resp for word in ['需要了解', '想知道', '告诉我', '具体']):
+                requests.append(resp)
+
+        return requests[:10]
+
+    def _get_default_learning(self):
+        """默认学习结果"""
+        return {
+            'response_style': self._get_default_style(),
+            'qa_patterns': self._get_default_qa_patterns(),
+            'business_processes': self._get_default_business_processes(),
+            'pricing_rules': self._get_default_pricing_rules()
+        }
+
+    def _get_default_style(self):
+        """默认风格"""
+        return {
+            'avg_length': 25,
+            'common_openings': {'好的': 10, '可以': 8},
+            'tone_words': {'好的': 0.3, '可以': 0.2},
+            'address_style': {'style': 'formal', 'preference': '您'},
+            'enthusiasm_level': {'level': 'medium', 'rate': 0.2}
+        }
+
+    def _get_default_qa_patterns(self):
+        """默认问答模式"""
+        return {
+            '问卷设计咨询': [{'customer': '需要问卷设计', 'response': '可以设计，需要了解您的具体需求'}],
+            '价格咨询': [{'customer': '多少钱', 'response': '问卷设计0-10题18元，每增10题+18元'}]
+        }
+
+    def _get_default_business_processes(self):
+        """默认业务流程"""
+        return {
+            'questionnaire_design_flow': {
+                'typical_flows': [['可以设计', '需要了解需求', '发送模板', '报价']],
+                'common_questions': ['需要多少题？', '研究什么方向？']
+            }
+        }
+
+    def _get_default_pricing_rules(self):
+        """默认定价规则"""
+        return {
+            'questionnaire_pricing': {
+                'base_pricing': '0-10题18元',
+                'increment_rule': '每增10题+18元'
+            },
+            'data_analysis_pricing': {
+                'typical_prices': {
+                    '描述性统计': '25元',
+                    '信度分析': '28元'
+                }
+            }
+        }
+
+
+# ==================== 订单管理器 ====================
+class OrderManager:
+    """管理客户订单和总价计算"""
+
+    def __init__(self):
+        self.current_order = {}
+        self.total_price = 0
+        self.payment_mentioned = False
+
+    def add_service(self, service_type, details, price):
+        """添加服务到订单"""
+        self.current_order[service_type] = {
+            'details': details,
+            'price': price
+        }
+        self._calculate_total()
+
+    def remove_service(self, service_type):
+        """移除服务"""
+        if service_type in self.current_order:
+            del self.current_order[service_type]
+            self._calculate_total()
+
+    def _calculate_total(self):
+        """计算总价"""
+        self.total_price = sum(item['price'] for item in self.current_order.values())
+
+    def get_order_summary(self):
+        """获取订单摘要"""
+        if not self.current_order:
+            return "暂无订单"
+
+        summary_lines = []
+        for service_type, details in self.current_order.items():
+            summary_lines.append(f"{service_type}: {details['details']} - {details['price']}元")
+
+        summary_lines.append(f"总计: {self.total_price}元")
+        return "\n".join(summary_lines)
+
+    def clear_order(self):
+        """清空订单"""
+        self.current_order = {}
+        self.total_price = 0
+        self.payment_mentioned = False
+
+    def mark_payment_mentioned(self):
+        """标记已提到付款"""
+        self.payment_mentioned = True
+
+    def should_mention_payment(self):
+        """判断是否需要提到付款"""
+        return self.total_price > 0 and not self.payment_mentioned
+
+
+# ==================== 对话状态管理器 ====================
+class ConversationState:
+    """对话状态管理器"""
+
+    def __init__(self):
+        self.state = "initial"
+        self.requirement_template_sent = False
+        self.requirement_filled = False
+        self.notices_given = False
+        self.additional_services_asked = False
+        self.ready_for_payment = False
+        self.customer_still_asking = True
+        self.should_separate_replies = False
+
+    def set_state(self, state):
+        """设置状态"""
+        self.state = state
+
+    def get_state(self):
+        """获取状态"""
+        return self.state
+
+    def reset(self):
+        """重置状态"""
+        self.state = "initial"
+        self.requirement_template_sent = False
+        self.requirement_filled = False
+        self.notices_given = False
+        self.additional_services_asked = False
+        self.ready_for_payment = False
+        self.customer_still_asking = True
+        self.should_separate_replies = False
+
+
+# ==================== DeepSeek智能回复生成器（最终版） ====================
+class DeepSeekIntelligentGenerator:
+    """最终版DeepSeek智能回复生成器"""
+
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.base_url = "https://api.deepseek.com/v1/chat/completions"
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        self.learned_patterns = {}
+        self.conversation_history = []
+        self.order_manager = OrderManager()
+        self.conversation_state = ConversationState()
+
+    def load_learned_patterns(self, learned_patterns):
+        """加载学习到的模式"""
+        self.learned_patterns = learned_patterns
+        print("🎓 已加载学习到的聊天模式和业务规则")
+
+    def generate_response(self, customer_message, conversation_history=None):
+        """生成智能回复"""
+        if conversation_history:
+            self.conversation_history = conversation_history
+
+        # 检查是否是问卷设计相关咨询
+        if self._is_questionnaire_inquiry(customer_message):
+            return self._handle_questionnaire_inquiry(customer_message)
+
+        # 分析客户消息，更新订单和状态
+        self._analyze_and_update_order(customer_message)
+        self._update_conversation_state(customer_message)
+
+        try:
+            # 构建系统提示词（包含所有学习到的内容和订单状态）
+            system_prompt = self._build_enhanced_system_prompt()
+
+            # 构建用户提示词
+            user_prompt = self._build_enhanced_user_prompt(customer_message)
+
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "max_tokens": 300,
+                "temperature": 0.6,
+                "top_p": 0.9,
+                "stream": False
+            }
+
+            print(f"🤖 正在调用DeepSeek API进行智能回复生成...")
+
+            response = requests.post(
+                self.base_url,
+                headers=self.headers,
+                json=payload,
+                timeout=20
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                generated_response = data['choices'][0]['message']['content'].strip()
+
+                print(f"✅ DeepSeek智能回复生成成功")
+
+                return {
+                    'response': generated_response,
+                    'method': 'deepseek_intelligent',
+                    'confidence': 0.95
+                }
+            else:
+                print(f"❌ DeepSeek API调用失败: {response.status_code}")
+                return {
+                    'response': "好的，您具体需要什么？",
+                    'method': 'fallback',
+                    'confidence': 0.3
+                }
+
+        except Exception as e:
+            print(f"❌ DeepSeek智能生成失败: {e}")
+            return {
+                'response': "好的，您具体需要什么？",
+                'method': 'error_fallback',
+                'confidence': 0.1
+            }
+
+    def _is_questionnaire_inquiry(self, customer_message):
+        """判断是否是问卷设计相关咨询"""
+        questionnaire_keywords = ['问卷', '设计', '调研', '研究', '量表']
+        msg_lower = customer_message.lower()
+        return any(keyword in msg_lower for keyword in questionnaire_keywords)
+
+    def _handle_questionnaire_inquiry(self, customer_message):
+        """处理问卷设计咨询，返回固定话术"""
+        if not self.conversation_state.requirement_template_sent:
+            # 返回话术1：需求收集模板
+            template = """您好，为了设计的问卷更贴合您的研究，设计问卷之前请提供一下以下信息。填写以下信息可享免费售后！
+1：您的研究目标和标题是什么？
+2：问卷是否需要李克特量表题？
+3：问卷需要划分几个维度？每个维度分别需要表达哪几个方面？
+4：问卷需要多少题？
+5：是否需要开放题？
+6：问卷是否需要人口学问题？比如您的性别，您的年龄等。
+7：问卷填写对象是那部分人群？"""
+
+            self.conversation_state.requirement_template_sent = True
+            return {
+                'response': template,
+                'method': 'fixed_template',
+                'confidence': 1.0,
+                'is_template': True
+            }
+
+        # 如果模板已发送，检查是否填写了需求
+        if '1：' in customer_message and len(customer_message) > 100:
+            # 客户填写了需求，返回话术2：注意事项
+            notice = """设计前注意事项：         问卷制作成word文档，可直接上传问卷星，如问卷有格式要求，请提前说明                               
+问卷是否需要根据成熟量表设计？如果需要，请自己提供我免费设计。如果需要我代找文献，额外40元一篇。"""
+
+            self.conversation_state.requirement_filled = True
+            self.conversation_state.notices_given = True
+            return {
+                'response': notice,
+                'method': 'fixed_notice',
+                'confidence': 1.0,
+                'is_template': True
+            }
+
+        # 其他情况使用AI生成
+        return None
+
+    def _analyze_and_update_order(self, customer_message):
+        """分析客户消息并更新订单"""
+        msg_lower = customer_message.lower()
+
+        # 检查问卷设计需求
+        if '1：' in customer_message and ('目标' in customer_message or '研究' in customer_message):
+            # 客户填写了需求模板，提取题目数量
+            numbers = re.findall(r'(\d+)', customer_message)
+            if numbers:
+                # 找到最可能是题目数量的数字
+                for num_str in numbers:
+                    num = int(num_str)
+                    if 10 <= num <= 50:  # 合理的题目数量范围
+                        if num <= 10:
+                            price = 18
+                        elif num <= 20:
+                            price = 36
+                        elif num <= 30:
+                            price = 54
+                        else:
+                            extra_groups = ((num - 30) // 10) + (1 if (num - 30) % 10 > 0 else 0)
+                            price = 54 + extra_groups * 18
+
+                        self.order_manager.add_service('问卷设计', f'{num}题问卷设计', price)
+                        self.conversation_state.requirement_filled = True
+                        break
+
+        # 检查指定IP代填需求（客户说"指定IP再来300份"这种格式）
+        if re.search(r'指定ip.*(\d+)', customer_message.lower()):
+            match = re.search(r'指定ip.*?(\d+)', customer_message.lower())
+            if match:
+                num_copies = int(match.group(1))
+                price = num_copies * 0.6
+                self.order_manager.add_service('代填服务', f'{num_copies}份指定IP代填', price)
+        elif re.search(r'(\d+).*指定ip', customer_message.lower()):
+            match = re.search(r'(\d+).*?指定ip', customer_message.lower())
+            if match:
+                num_copies = int(match.group(1))
+                price = num_copies * 0.6
+                self.order_manager.add_service('代填服务', f'{num_copies}份指定IP代填', price)
+
+        # 检查数据分析需求（只有客户明确要求时才添加）
+        if '描述' in customer_message and '信效度' in customer_message:
+            # 客户要描述性统计和信效度分析
+            total_analysis_price = 25 + 28 + 28  # 描述性25 + 信度28 + 效度28
+            self.order_manager.add_service('数据分析', '描述性统计+信度分析+效度分析', total_analysis_price)
+        elif '描述' in customer_message and ('要' in customer_message or '选' in customer_message):
+            self.order_manager.add_service('数据分析', '描述性统计', 25)
+
+        # 检查是否不要某些服务
+        if any(word in customer_message for word in ['不要', '不需要', '算了', '不做']):
+            if '分析' in customer_message:
+                self.order_manager.remove_service('数据分析')
+
+    def _update_conversation_state(self, customer_message):
+        """更新对话状态"""
+        msg_lower = customer_message.lower()
+
+        # 判断客户是否还在咨询
+        if any(word in msg_lower for word in ['什么意思', '是什么', '怎么', '免费吗', '还有什么', '什么', 'ai']):
+            self.conversation_state.customer_still_asking = True
+        elif any(word in msg_lower for word in ['指定ip再来', '描述和信效度', '不需要', '不用', '就这些', '没了']):
+            # 客户明确选择服务或拒绝服务
+            self.conversation_state.customer_still_asking = False
+        elif any(word in msg_lower for word in ['好的', 'ok', '明白']):
+            # 客户确认，但可能还会继续咨询
+            pass
+
+        # 判断是否询问问卷相关
+        if any(word in msg_lower for word in ['问卷']) and self.conversation_state.state == "initial":
+            self.conversation_state.set_state("requirement_collecting")
+            self.conversation_state.requirement_template_sent = True
+
+        # 判断是否填写了需求模板
+        if ('1：' in customer_message) and len(customer_message) > 100:
+            self.conversation_state.requirement_filled = True
+            self.conversation_state.set_state("requirement_filled")
+
+        # 判断是否确认了注意事项
+        if self.conversation_state.state == "noticing" and any(
+                word in msg_lower for word in ['好的', '明白', '知道', '行', '收到', 'ok']):
+            self.conversation_state.notices_given = True
+            self.conversation_state.set_state("service_asking")
+
+        # 判断是否可以引导付款
+        if (not self.conversation_state.customer_still_asking and
+                self.conversation_state.additional_services_asked and
+                self.order_manager.total_price > 0):
+            self.conversation_state.ready_for_payment = True
+            self.conversation_state.set_state("payment")
+
+    def _build_enhanced_system_prompt(self):
+        """构建增强的系统提示词"""
+
+        # 获取学习到的内容
+        style = self.learned_patterns.get('response_style', {})
+
+        # 获取当前订单状态
+        order_summary = self.order_manager.get_order_summary()
+
+        # 获取对话状态
+        conversation_state = self.conversation_state.get_state()
+
+        system_prompt = f"""你是lin1176，一个在闲鱼平台提供问卷设计和数据分析服务的真实个人。现在是{datetime.now().strftime('%Y年%m月%d日 %H:%M')}。
+
+## 你的身份和背景
+- 真实的个人，专门做问卷设计和数据分析
+- 有丰富经验，在闲鱼平台为学生和研究者提供专业服务
+- 以质量和服务著称，包售后
+
+## 当前对话状态
+对话阶段: {conversation_state}
+订单状态: {order_summary}
+需求模板已发送: {self.conversation_state.requirement_template_sent}
+需求已填写: {self.conversation_state.requirement_filled}
+注意事项已告知: {self.conversation_state.notices_given}
+额外服务已询问: {self.conversation_state.additional_services_asked}
+客户还在咨询: {self.conversation_state.customer_still_asking}
+准备付款: {self.conversation_state.ready_for_payment}
+
+## 你的说话风格特点（极其重要）
+- 语言自然简洁，像真人朋友聊天
+- 统一使用"您"称呼客户，表示尊重
+- 语气温和友好，但不过度热情
+- 回复简洁明了，不啰嗦
+- **不要主动介绍自己是做什么的**
+- **回复要分开发送，不要一次说太多内容**
+- 适当使用"哈"增加亲切感，但不要过度
+
+## 严格的业务流程
+
+### 问卷设计完整流程
+1. **问候回复**: 客户问候 → 简单回复"您好"，不要主动介绍
+2. **需求收集**: 客户说问卷 → 发送需求收集模板
+3. **报价+注意事项**: 客户填写模板 → 报价并告知注意事项（一次性说完）
+4. **额外服务询问**: 告知注意事项后 → 询问是否需要代填、分析等额外服务
+5. **耐心解答**: 客户有疑问时耐心解答，分开回复
+6. **最终付款**: 客户明确不需要其他服务且没有疑问时 → 引导付款
+
+### 需求收集模板
+"为了设计的问卷更贴合您的研究，请提供以下信息。填写以下信息可享免费售后！
+
+1：您的研究目标和标题是什么？
+2：问卷是否需要李克特量表题？
+3：问卷需要划分几个维度？每个维度分别需要表达哪几个方面？
+4：问卷需要多少题？
+5：是否需要开放题？
+6：问卷是否需要人口学问题？比如您的性别，您的年龄等。
+7：问卷填写对象是那部分人群？
+
+辛苦您填写一下"
+
+### 注意事项和售后说明（客户填写需求后一次性说完）
+"您再看下还有其他需要交代的吗？在我完成之前要把要求全部说清楚。如果在您要求范围内不满意，我无限修改。但如果做好后您再加新要求，就不在售后范围了。
+
+问卷会做成word文档，可以直接上传问卷星。需要根据成熟量表设计的话，您提供量表我免费设计。需要代找文献的话额外40元一篇。
+
+还需要代填数据或分析吗？"
+
+### 额外服务询问策略（重要）
+- 简单询问：先问"还需要代填数据或分析吗？"
+- 客户询问代填价格 → 给出三种选项，分开回复
+- 客户询问分析 → 简单介绍，不要一次说太多
+- 客户有疑问时耐心解答，每个问题单独回复
+- **只有客户明确表示不需要其他服务且没有疑问时才引导付款**
+
+### 代填服务价格和说明
+- 机填：0.35元/份
+- 人工：0.5元/份  
+- 指定IP：0.6元/份（用不同地区兼职小伙伴的IP地址填写）
+
+### 数据分析价格（仅在客户询问时提供）
+- 描述性统计：25元
+- 信度分析：28元
+- 效度分析：28元
+- T检验：40元
+- 相关性分析：40元
+- 方差分析：55元
+- 因子分析：55元
+- 聚类分析：55元
+- 回归分析：60元
+- 卡方检验：70元
+- 中介效应：90元
+
+## 定价标准
+- 0-10题: 18元
+- 11-20题: 36元  
+- 21-30题: 54元
+- 每增10题+18元
+
+## 重要回复原则（极其重要）
+1. **简洁自然**: 像真人一样，使用"您"称呼，不要AI化
+2. **分开回复**: 不要一次说太多内容，分开发送
+3. **耐心服务**: 客户有疑问时耐心解答，每个问题单独回复
+4. **准确计算**: 必须包含所有服务的总价，不要遗漏
+5. **适时引导**: 只在客户明确不需要其他服务且没有疑问时才引导付款
+6. **不主动介绍**: 不要主动说自己是做什么的
+
+## 回复内容分离策略
+- 回答问题 → 单独一条回复
+- 询问需求 → 单独一条回复  
+- 报价计算 → 单独一条回复
+- 不要把多个话题混在一条回复里
+
+## 特别注意事项
+- 客户询问概念时，先解释概念，再单独询问需求
+- 计算总价时必须包含所有已确认的服务
+- 指定IP代填是用不同地区兼职小伙伴的IP地址
+- 不是AI刷的，是个人手工代填
+- 回复要自然分开，不要显得AI化
+
+## 重要提醒
+- 你不是AI助手，你是真实的个人lin1176
+- 必须严格按照业务流程的顺序执行
+- 语气要自然温和，使用"您"称呼
+- 客户还在咨询时不要急于引导付款
+- 计算总价时不要遗漏任何服务
+- 回复要分开发送，不要一次说太多
+"""
+
+        return system_prompt
+
+    def _build_enhanced_user_prompt(self, customer_message):
+        """构建增强的用户提示词"""
+        # 构建对话历史
+        history_text = ""
+        if self.conversation_history:
+            recent_history = self.conversation_history[-6:]
+            history_lines = []
+            for msg in recent_history:
+                history_lines.append(f"{msg['role']}: {msg['message']}")
+            history_text = "\n".join(history_lines)
+
+        # 获取状态信息
+        order_summary = self.order_manager.get_order_summary()
+        conversation_state = self.conversation_state.get_state()
+
+        user_prompt = f"""
+对话历史:
+{history_text}
+
+当前状态: {conversation_state}
+当前订单: {order_summary}
+客户还在咨询: {self.conversation_state.customer_still_asking}
+
+客户刚才说: "{customer_message}"
+
+请你作为lin1176，用自然温和的语气（使用"您"称呼），严格按照业务流程回复：
+
+当前应该执行的步骤:
+"""
+
+        # 根据状态和客户消息确定步骤
+        if customer_message.lower() in ['你好', '您好', '在吗']:
+            user_prompt += "→ 简单问候，不要主动介绍自己"
+        elif '问卷' in customer_message and conversation_state == "initial":
+            user_prompt += "→ 发送需求收集模板"
+        elif conversation_state == "requirement_filled" and not self.conversation_state.notices_given:
+            user_prompt += "→ 报价后告知注意事项和售后说明，询问额外服务（一次性说完）"
+        elif '代填免费吗' in customer_message:
+            user_prompt += "→ 说明代填收费，给出三种选项"
+        elif '代找文献是什么意思' in customer_message:
+            user_prompt += "→ 解释代找文献服务"
+        elif '指定IP是什么意思' in customer_message:
+            user_prompt += "→ 解释指定IP服务（用不同地区兼职小伙伴的IP）"
+        elif 'ai刷' in customer_message.lower():
+            user_prompt += "→ 简单回答不是AI刷的，然后单独询问其他需求"
+        elif re.search(r'指定ip.*(\d+)', customer_message.lower()) or re.search(r'(\d+).*指定ip',
+                                                                                customer_message.lower()):
+            user_prompt += "→ 确认指定IP代填服务和价格，询问其他需求"
+        elif '还有什么' in customer_message:
+            user_prompt += "→ 客户还在了解，简单介绍分析服务"
+        elif '描述和信效度' in customer_message:
+            user_prompt += "→ 确认分析服务，计算包含所有服务的总价"
+        elif (not self.conversation_state.customer_still_asking and
+              self.conversation_state.additional_services_asked and
+              self.order_manager.total_price > 0):
+            user_prompt += "→ 客户没有疑问了，计算总价并引导付款"
+        else:
+            user_prompt += "→ 根据客户消息自然回复"
+
+        user_prompt += """
+
+特别注意:
+1. 严格按照流程顺序，不要跳过任何步骤
+2. 统一使用"您"称呼客户
+3. 客户还在咨询时不要急于催单
+4. 计算总价时必须包含所有已确认的服务（问卷设计+代填+分析）
+5. 回复要分开发送，不要一次说太多内容
+6. 不要主动介绍自己是做什么的
+7. 语气温和友好，不要过度热情
+8. 指定IP说明：用不同地区兼职小伙伴的IP地址
+
+直接给出你的回复，不要任何解释。语气要自然温和，回复要简洁！
+"""
+
+        return user_prompt
+
+
+# ==================== 对话管理器 ====================
+class ConversationManager:
+    """对话管理器"""
+
+    def __init__(self):
+        self.conversation_history = []
+        self.customer_info = {}
+
+    def add_message(self, role, message):
+        """添加消息到历史"""
+        self.conversation_history.append({
+            'role': role,
+            'message': message,
+            'timestamp': time.time()
+        })
+
+        if role == '客户':
+            self._analyze_customer_message(message)
+
+    def _analyze_customer_message(self, message):
+        """分析客户消息，提取信息"""
+        msg_lower = message.lower()
+
+        # 提取基本信息
+        if '问卷设计' in message or '设计' in message:
+            self.customer_info['service_type'] = '问卷设计'
+        elif '数据分析' in message or '分析' in message:
+            self.customer_info['service_type'] = '数据分析'
+        elif '代填' in message:
+            self.customer_info['service_type'] = '代填'
+
+        # 提取题目数量
+        numbers = re.findall(r'(\d+)', message)
+        if numbers and any(word in msg_lower for word in ['题', '个', '道']):
+            self.customer_info['题目数量'] = int(numbers[0])
+
+        # 提取研究信息
+        if '化妆品' in message:
+            self.customer_info['研究领域'] = '化妆品'
+        if '营销' in message:
+            self.customer_info['研究方法'] = '营销'
+
+    def get_conversation_history(self):
+        """获取对话历史"""
+        return self.conversation_history
+
+    def get_customer_info(self):
+        """获取客户信息"""
+        return self.customer_info
+
+
+# ==================== 闲鱼聊天列表监控器 ====================
+class XianyuChatListMonitor:
+    """闲鱼聊天列表监控器"""
+
+    def __init__(self, driver, wait):
+        self.driver = driver
+        self.wait = wait
+        self.last_chat_items = []
+        self.new_message_indicators = [
+            '.conversation-item--JReyg97P',  # 聊天项
+            '.conversation-item-active--H2KX6Pb4',  # 激活的聊天项
+            '[class*="conversation-item"]',  # 通用聊天项
+            '[class*="chat-item"]'  # 可能的聊天项
+        ]
+
+    def get_chat_list(self):
+        """获取聊天列表"""
+        try:
+            chat_items = []
+
+            # 尝试多种选择器获取聊天列表
+            selectors = [
+                '.conversation-item--JReyg97P',
+                '.conversation-list--jDBLEMex .conversation-item--JReyg97P',
+                '[class*="conversation-item"]',
+                '[class*="chat-item"]'
+            ]
+
+            for selector in selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    if elements:
+                        print(f"📋 找到 {len(elements)} 个聊天项（选择器: {selector}）")
+
+                        for i, element in enumerate(elements):
+                            try:
+                                # 获取聊天对象名称
+                                name_element = element.find_element(By.CSS_SELECTOR,
+                                                                    '.text-container--y8mm9USY, [class*="chat-name"], [class*="contact-name"]')
+                                name = name_element.text.strip().split('\n')[0] if name_element else f"用户{i + 1}"
+
+                                # 检查是否有新消息指示器
+                                has_new_message = self._check_new_message_indicator(element)
+
+                                # 获取最后消息时间（如果有）
+                                time_element = element.find_element(By.CSS_SELECTOR,
+                                                                    '[class*="time"], [class*="timestamp"]')
+                                last_time = time_element.text.strip() if time_element else ""
+
+                                chat_items.append({
+                                    'element': element,
+                                    'name': name,
+                                    'has_new_message': has_new_message,
+                                    'last_time': last_time,
+                                    'index': i
+                                })
+
+                            except Exception as e:
+                                # 如果无法获取详细信息，至少记录元素
+                                chat_items.append({
+                                    'element': element,
+                                    'name': f"聊天{i + 1}",
+                                    'has_new_message': False,
+                                    'last_time': "",
+                                    'index': i
+                                })
+                        break
+
+                except Exception as e:
+                    continue
+
+            return chat_items
+
+        except Exception as e:
+            print(f"❌ 获取聊天列表失败: {e}")
+            return []
+
+    def _check_new_message_indicator(self, chat_element):
+        """检查聊天项是否有新消息指示器"""
+        try:
+            # 检查各种可能的新消息指示器
+            indicators = [
+                '.ant-badge',  # badge指示器
+                '[class*="badge"]',  # 通用badge
+                '[class*="unread"]',  # 未读标识
+                '[class*="new"]',  # 新消息标识
+                '.red-dot',  # 红点
+                '[class*="dot"]'  # 点状指示器
+            ]
+
+            for indicator in indicators:
+                try:
+                    badge_element = chat_element.find_element(By.CSS_SELECTOR, indicator)
+                    if badge_element and badge_element.is_displayed():
+                        return True
+                except:
+                    continue
+
+            # 检查是否为当前激活的聊天（可能表示有新消息）
+            class_attr = chat_element.get_attribute('class') or ''
+            if 'active' in class_attr.lower():
+                return True
+
+            return False
+
+        except Exception as e:
+            return False
+
+    def find_new_messages(self):
+        """查找有新消息的聊天"""
+        try:
+            current_chat_items = self.get_chat_list()
+            new_message_chats = []
+
+            for chat_item in current_chat_items:
+                if chat_item['has_new_message']:
+                    new_message_chats.append(chat_item)
+                    print(f"🔔 发现新消息: {chat_item['name']}")
+
+            return new_message_chats
+
+        except Exception as e:
+            print(f"❌ 查找新消息失败: {e}")
+            return []
+
+    def click_chat_item(self, chat_item):
+        """点击聊天项进入对话"""
+        try:
+            element = chat_item['element']
+
+            # 使用JavaScript点击，更可靠
+            self.driver.execute_script("arguments[0].click();", element)
+
+            # 等待页面加载
+            time.sleep(2)
+
+            print(f"✅ 已点击进入与 {chat_item['name']} 的对话")
+            return True
+
+        except Exception as e:
+            print(f"❌ 点击聊天项失败: {e}")
+            return False
+
+
+# ==================== 闲鱼自动化机器人（增强版） ====================
+class XianyuAutomationBot:
+    """闲鱼自动化机器人（增强版）"""
+
+    def __init__(self, deepseek_generator, conversation_manager):
+        self.deepseek_generator = deepseek_generator
+        self.conversation_manager = conversation_manager
+        self.driver = None
+        self.wait = None
+        self.running = False
+        self.last_message_count = 0
+        self.current_chat_name = ""
+        self.processed_messages = set()  # 记录已处理的消息
+        self.chat_monitor = None
+        self.current_conversation_id = None
+        self.pending_messages = []  # 待发送的消息队列
+
+    def setup_driver(self):
+        """设置Chrome浏览器驱动"""
+        print("🌐 正在设置Chrome浏览器...")
+
+        chrome_options = Options()
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+
+        try:
+            self.driver = webdriver.Chrome(options=chrome_options)
+            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            self.wait = WebDriverWait(self.driver, 10)
+
+            # 初始化聊天列表监控器
+            self.chat_monitor = XianyuChatListMonitor(self.driver, self.wait)
+
+            print("✅ Chrome浏览器设置成功")
+            return True
+        except Exception as e:
+            print(f"❌ Chrome浏览器设置失败: {e}")
+            return False
+
+    def open_xianyu(self):
+        """打开闲鱼聊天页面"""
+        print("🐟 正在打开闲鱼聊天页面...")
+        try:
+            self.driver.get("https://www.goofish.com/im")
+            print("✅ 闲鱼页面已打开，请手动登录...")
+            return True
+        except Exception as e:
+            print(f"❌ 打开闲鱼页面失败: {e}")
+            return False
+
+    def wait_for_spacebar(self):
+        """等待用户按空格键"""
+        print("⌨️ 请登录完成后按空格键开始自动回复...")
+
+        def on_space():
+            print("🚀 检测到空格键，开始自动接管闲鱼...")
+            self.running = True
+            return False  # 停止监听
+
+        keyboard.wait('space')
+        self.running = True
+        print("🤖 闲鱼自动回复已启动！")
+
+    def get_chat_messages(self):
+        """获取当前聊天的消息"""
+        try:
+            # 尝试多种可能的消息选择器
+            message_selectors = [
+                ".message-row--pIWaXNhZ",
+                ".message-content--kBUbolyy",
+                ".msg-dx-content--UtV9jReL",
+                "[class*='message']",
+                "[class*='msg-dx']"
+            ]
+
+            messages = []
+            for selector in message_selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    if elements:
+                        print(f"📝 找到 {len(elements)} 条消息（选择器: {selector}）")
+                        for element in elements:
+                            try:
+                                text = element.get_attribute('textContent') or element.text
+                                if text and text.strip():
+                                    # 判断是否是自己发送的消息
+                                    is_own = self._is_own_message(element)
+                                    messages.append({
+                                        'text': text.strip(),
+                                        'is_own': is_own,
+                                        'element': element
+                                    })
+                            except Exception as e:
+                                continue
+                        break
+                except Exception as e:
+                    continue
+
+            return messages
+        except Exception as e:
+            print(f"❌ 获取消息失败: {e}")
+            return []
+
+    def _is_own_message(self, element):
+        """判断是否是自己发送的消息"""
+        try:
+            # 检查元素的class属性
+            class_attr = element.get_attribute('class') or ''
+
+            # 根据分析的结果，包含这些class的可能是自己发送的
+            own_indicators = [
+                'msg-dx-button-text--dtC59Vus',
+                'message-text-right',
+                'msg-right',
+                'own-message'
+            ]
+
+            # 包含这些class的可能是对方发送的
+            other_indicators = [
+                'msg-text-left--fqg7TStL',
+                'msg-dx-content--UtV9jReL',
+                'message-text-left',
+                'msg-left'
+            ]
+
+            for indicator in own_indicators:
+                if indicator in class_attr:
+                    return True
+
+            for indicator in other_indicators:
+                if indicator in class_attr:
+                    return False
+
+            # 如果无法通过class判断，尝试通过位置判断
+            # 检查元素的父元素或祖先元素
+            try:
+                parent = element.find_element(By.XPATH, '..')
+                parent_class = parent.get_attribute('class') or ''
+
+                if 'right' in parent_class.lower():
+                    return True
+                elif 'left' in parent_class.lower():
+                    return False
+            except:
+                pass
+
+            # 默认认为不是自己的消息
+            return False
+
+        except Exception as e:
+            return False
+
+
+def get_latest_other_message(self):
+    """获取最新的对方消息"""
+    messages = self.get_chat_messages()
+
+    # 过滤出对方发送的消息
+    other_messages = [msg for msg in messages if not msg['is_own']]
+
+    if other_messages:
+        latest = other_messages[-1]
+        message_text = latest['text']
+
+        # 生成消息的唯一标识符
+        message_id = f"{self.current_chat_name}_{hash(message_text)}_{len(other_messages)}"
+
+        # 检查是否已处理过这条消息
+        if message_id not in self.processed_messages:
+            self.processed_messages.add(message_id)
+            return message_text
+
+    return None
+
+
+def send_message(self, message):
+    """发送消息到闲鱼（修复版本）"""
+    try:
+        print(f"📤 准备发送消息: {message[:30]}...")
+
+        # 查找输入框的多种可能选择器
+        input_selectors = [
+            "textarea.ant-input",
+            ".ant-input.ant-input-outlined",
+            "textarea[class*='textarea']",
+            "textarea.textarea-no-border--cIId06_i",
+            "textarea",
+            "[contenteditable='true']"
+        ]
+
+        input_element = None
+        for selector in input_selectors:
+            try:
+                input_element = self.wait.until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+                )
+                if input_element and input_element.is_displayed() and input_element.is_enabled():
+                    print(f"✅ 找到输入框: {selector}")
+                    break
+            except:
+                continue
+
+        if not input_element:
+            print("❌ 未找到可用的输入框")
+            return False
+
+        # 清空输入框
+        try:
+            input_element.clear()
+            time.sleep(0.5)
+        except:
+            # 如果clear()失败，尝试使用Ctrl+A + Delete
+            input_element.send_keys(Keys.CONTROL + "a")
+            input_element.send_keys(Keys.DELETE)
+            time.sleep(0.5)
+
+        # 输入消息
+        input_element.send_keys(message)
+        time.sleep(1)  # 等待输入完成
+
+        print(f"✍️ 消息已输入到输入框")
+
+        # 查找并点击发送按钮
+        send_selectors = [
+            ".sendbox--A9eGQCY5",
+            ".sendbox-bottom--O2c5fyIe",
+            "[class*='sendbox']",
+            "button[type='submit']",
+            "div:contains('发送')",
+            "div:contains('发 送')",
+            ".send-button",
+            "[class*='send-btn']"
+        ]
+
+        send_button = None
+        for selector in send_selectors:
+            try:
+                elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                for element in elements:
+                    if element.is_displayed() and element.is_enabled():
+                        # 检查元素文本是否包含"发送"相关词汇
+                        element_text = element.text.strip()
+                        if any(word in element_text for word in ['发送', '发 送', 'Send', 'send']):
+                            send_button = element
+                            print(f"✅ 找到发送按钮: {selector} - {element_text}")
+                            break
+                if send_button:
+                    break
+            except Exception as e:
+                continue
+
+        # 尝试点击发送按钮
+        if send_button:
+            try:
+                # 使用JavaScript点击，更可靠
+                self.driver.execute_script("arguments[0].click();", send_button)
+                print(f"🔘 已点击发送按钮")
+                time.sleep(1)
+            except Exception as e:
+                print(f"⚠️ JavaScript点击失败，尝试ActionChains: {e}")
+                try:
+                    ActionChains(self.driver).move_to_element(send_button).click().perform()
+                    print(f"🔘 ActionChains点击成功")
+                    time.sleep(1)
+                except Exception as e2:
+                    print(f"⚠️ ActionChains也失败，尝试直接点击: {e2}")
+                    send_button.click()
+                    time.sleep(1)
+        else:
+            # 如果找不到发送按钮，尝试按回车键
+            print("⚠️ 未找到发送按钮，尝试按回车键发送")
+            input_element.send_keys(Keys.RETURN)
+            time.sleep(1)
+
+        # 验证消息是否发送成功
+        time.sleep(2)  # 等待消息发送
+
+        # 检查输入框是否被清空（通常表示发送成功）
+        try:
+            current_value = input_element.get_attribute('value') or input_element.text
+            if not current_value.strip():
+                print(f"✅ 消息发送成功: {message[:50]}...")
+                return True
+            else:
+                print(f"⚠️ 输入框未被清空，可能发送失败")
+                # 手动清空输入框
+                input_element.clear()
+                return False
+        except:
+            # 如果无法检查输入框状态，假设发送成功
+            print(f"✅ 消息已发送: {message[:50]}...")
+            return True
+
+    except Exception as e:
+        print(f"❌ 发送消息失败: {e}")
+        return False
+
+
+def send_multiple_messages(self, messages):
+    """发送多条消息（队列处理）"""
+    """发送多条消息，确保每条消息都能正确发送"""
+    success_count = 0
+
+    for i, message in enumerate(messages):
+        try:
+            print(f"📤 发送第 {i + 1}/{len(messages)} 条消息...")
+
+            # 发送消息
+            if self.send_message(message):
+                success_count += 1
+                self.conversation_manager.add_message('我', message)
+
+                # 随机延迟，模拟人工发送间隔
+                if i < len(messages) - 1:  # 不是最后一条消息
+                    delay = random.uniform(2, 5)
+                    print(f"⏰ 等待 {delay:.1f} 秒后发送下一条...")
+                    time.sleep(delay)
+            else:
+                print(f"❌ 第 {i + 1} 条消息发送失败")
+
+        except Exception as e:
+            print(f"❌ 发送第 {i + 1} 条消息时出错: {e}")
+
+    print(f"📊 发送完成: {success_count}/{len(messages)} 条消息成功")
+    return success_count == len(messages)
+
+
+def get_current_chat_name(self):
+    """获取当前聊天对象名称"""
+    try:
+        # 尝试多种可能的选择器获取聊天对象名称
+        name_selectors = [
+            ".message-topbar--uzL8Czfo",
+            "[class*='chat-name']",
+            "[class*='contact-name']",
+            ".conversation-title",
+            ".text-container--y8mm9USY"
+        ]
+
+        for selector in name_selectors:
+            try:
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                name = element.text.strip()
+                if name and len(name) > 0:
+                    # 提取实际的用户名（去掉多余信息）
+                    name = name.split('\n')[0].split('(')[0].strip()
+                    if len(name) > 1:  # 确保不是单个字符
+                        return name
+            except:
+                continue
+
+        return "未知用户"
+    except Exception as e:
+        return "未知用户"
+
+
+def monitor_chat_list(self):
+    """监控聊天列表，自动点击有新消息的聊天"""
+    try:
+        print("👁️ 开始监控聊天列表...")
+
+        while self.running:
+            try:
+                # 查找有新消息的聊天
+                new_message_chats = self.chat_monitor.find_new_messages()
+
+                if new_message_chats:
+                    for chat_item in new_message_chats:
+                        print(f"🔔 发现新消息来自: {chat_item['name']}")
+
+                        # 点击进入聊天
+                        if self.chat_monitor.click_chat_item(chat_item):
+                            # 更新当前聊天信息
+                            self.current_chat_name = chat_item['name']
+                            self.current_conversation_id = f"{chat_item['name']}_{time.time()}"
+
+                            # 等待页面加载
+                            time.sleep(3)
+
+                            # 处理这个聊天中的新消息
+                            self.handle_current_chat_messages()
+
+                            # 处理完后稍作休息
+                            time.sleep(2)
+
+                # 监控间隔
+                time.sleep(random.uniform(5, 10))
+
+            except Exception as e:
+                print(f"❌ 监控聊天列表出错: {e}")
+                time.sleep(5)
+
+    except Exception as e:
+        print(f"❌ 聊天列表监控失败: {e}")
+
+
+def handle_current_chat_messages(self):
+    """处理当前聊天中的消息"""
+    try:
+        # 获取最新的对方消息
+        latest_message = self.get_latest_other_message()
+
+        if latest_message:
+            print(f"📨 收到来自 {self.current_chat_name} 的消息: {latest_message}")
+
+            # 添加到对话历史
+            self.conversation_manager.add_message('客户', latest_message)
+
+            # 生成回复
+            print("🤖 正在生成智能回复...")
+            response_result = self.deepseek_generator.generate_response(
+                latest_message,
+                self.conversation_manager.get_conversation_history()
+            )
+
+            response_text = response_result['response']
+            method = response_result['method']
+            is_template = response_result.get('is_template', False)
+
+            print(f"💭 生成回复 ({method}): {response_text[:50]}...")
+
+            # 检查是否是固定话术模板
+            if is_template:
+                # 模板消息直接发送，不分段
+                delay = random.uniform(2, 5)
+                print(f"⏰ 等待 {delay:.1f} 秒后发送模板回复...")
+                time.sleep(delay)
+
+                if self.send_message(response_text):
+                    self.conversation_manager.add_message('我', response_text)
+                    print(f"📤 模板回复已发送")
+            else:
+                # 检查是否需要分段发送
+                if self._should_split_response(response_text):
+                    parts = self._split_response(response_text)
+                    print(f"📝 回复将分为 {len(parts)} 段发送")
+                    self.send_multiple_messages(parts)
+                else:
+                    # 添加随机延迟模拟人工回复
+                    delay = random.uniform(3, 8)
+                    print(f"⏰ 等待 {delay:.1f} 秒后回复...")
+                    time.sleep(delay)
+
+                    if self.send_message(response_text):
+                        self.conversation_manager.add_message('我', response_text)
+
+    except Exception as e:
+        print(f"❌ 处理当前聊天消息失败: {e}")
+
+
+def monitor_and_reply(self):
+    """监控消息并自动回复（增强版）"""
+    print("👀 开始监控闲鱼消息...")
+
+    # 启动聊天列表监控线程
+    chat_list_thread = threading.Thread(target=self.monitor_chat_list, daemon=True)
+    chat_list_thread.start()
+
+    # 主循环：监控当前聊天
+    while self.running:
+        try:
+            # 更新当前聊天对象
+            self.current_chat_name = self.get_current_chat_name()
+
+            # 处理当前聊天的新消息
+            self.handle_current_chat_messages()
+
+            # 检查频率
+            time.sleep(random.uniform(3, 6))
+
+        except KeyboardInterrupt:
+            print("\n👋 用户中断，停止监控")
+            self.running = False
+            break
+        except Exception as e:
+            print(f"❌ 监控过程出错: {e}")
+            time.sleep(5)  # 出错后等待5秒再继续
+
+
+def _should_split_response(self, response):
+    """判断是否需要分段发送"""
+    # 如果回复很长或包含多个独立的部分，就分段发送
+    return (len(response) > 100 or
+            response.count('\n') > 2 or
+            response.count('。') > 3)
+
+
+def _split_response(self, response):
+    """分割回复为多个部分"""
+    parts = []
+
+    # 按换行符分割
+    lines = response.split('\n')
+    current_part = ""
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        if len(current_part + line) > 80:
+            if current_part:
+                parts.append(current_part.strip())
+            current_part = line
+        else:
+            current_part += ("\n" if current_part else "") + line
+
+    if current_part:
+        parts.append(current_part.strip())
+
+    # 如果没有成功分割，按句子分割
+    if len(parts) <= 1:
+        sentences = re.split(r'[。！？]', response)
+        parts = []
+        current_part = ""
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+
+            if len(current_part + sentence) > 60:
+                if current_part:
+                    parts.append(current_part.strip() + "。")
+                current_part = sentence
+            else:
+                current_part += sentence + "。"
+
+        if current_part:
+            parts.append(current_part.strip())
+
+    return parts if len(parts) > 1 else [response]
+
+
+def stop(self):
+    """停止自动回复"""
+    print("🛑 正在停止闲鱼自动回复...")
+    self.running = False
+    if self.driver:
+        self.driver.quit()
+        print("✅ 浏览器已关闭")
+
+
+def run(self):
+    """运行闲鱼自动化机器人"""
+    try:
+        # 1. 设置浏览器
+        if not self.setup_driver():
+            return False
+
+        # 2. 打开闲鱼页面
+        if not self.open_xianyu():
+            return False
+
+        # 3. 等待用户登录并按空格
+        self.wait_for_spacebar()
+
+        # 4. 开始监控和自动回复
+        self.monitor_and_reply()
+
+    except KeyboardInterrupt:
+        print("\n👋 用户中断")
+    except Exception as e:
+        print(f"❌ 运行出错: {e}")
+    finally:
+        self.stop()
+
+
+# ==================== 主程序 ====================
+class DeepSeekChatbotTrainer:
+    def __init__(self, tex_dir, deepseek_api_key):
+        self.tex_dir = tex_dir
+        self.deepseek_api_key = deepseek_api_key
+        self.learned_patterns = {}
+        self.deepseek_generator = None
+        self.conversation_manager = None
+        self.xianyu_bot = None
+
+    def train_and_run(self):
+        """训练并运行"""
+        print("🚀 开始DeepSeek智能聊天机器人训练（闲鱼自动化增强版）...")
+        print("=" * 60)
+
+        # 步骤1: 从聊天记录学习
+        print("🎓 步骤1: 从真实聊天记录中深度学习...")
+        learner = ChatRecordLearner(self.tex_dir)
+        self.learned_patterns = learner.learn_from_chat_records()
+
+        # 保存学习结果
+        with open("learned_patterns_final.json", 'w', encoding='utf-8') as f:
+            json.dump(self.learned_patterns, f, ensure_ascii=False, indent=2)
+        print("💾 学习结果已保存到 learned_patterns_final.json")
+
+        # 步骤2: 初始化最终版DeepSeek生成器
+        print("\n🤖 步骤2: 初始化最终版DeepSeek智能生成器...")
+        self.deepseek_generator = DeepSeekIntelligentGenerator(self.deepseek_api_key)
+        self.deepseek_generator.load_learned_patterns(self.learned_patterns)
+
+        # 步骤3: 初始化对话管理器
+        print("\n💬 步骤3: 初始化对话管理器...")
+        self.conversation_manager = ConversationManager()
+
+        # 步骤4: 测试最终系统
+        print("\n🧪 步骤4: 测试最终系统...")
+        self.test_final_system()
+
+        # 步骤5: 启动闲鱼自动化机器人
+        print("\n🐟 步骤5: 启动闲鱼自动化机器人...")
+        self.start_xianyu_automation()
+
+    def test_final_system(self):
+        """测试最终系统"""
+        test_messages = [
+            "你好",
+            "问卷设计",
+            "代填免费吗"
+        ]
+
+        print("测试最终版DeepSeek智能回复...")
+        for msg in test_messages:
+            try:
+                print(f"  测试消息: {msg}")
+                response_result = self.deepseek_generator.generate_response(msg)
+                print(f"  回复: {response_result['response'][:50]}...")
+                print(f"  方式: {response_result['method']}")
+                print(f"  状态: {self.deepseek_generator.conversation_state.get_state()}")
+                print("-" * 40)
+            except Exception as e:
+                print(f"  测试出错: {e}")
+
+    def start_xianyu_automation(self):
+        """启动闲鱼自动化"""
+        try:
+            print("🤖 初始化闲鱼自动化机器人...")
+            self.xianyu_bot = XianyuAutomationBot(
+                self.deepseek_generator,
+                self.conversation_manager
+            )
+
+            print("🚀 启动闲鱼自动化...")
+            self.xianyu_bot.run()
+
+        except Exception as e:
+            print(f"❌ 启动闲鱼自动化失败: {e}")
+
+
+def main():
+    """主函数"""
+    print("🤖 DeepSeek智能聊天机器人训练系统（闲鱼自动化增强版）")
+    print("🎓 从真实聊天记录中学习风格和业务规则")
+    print("🤖 DeepSeek智能思考，完全模仿真实对话")
+    print("🗣️ 自然分开回复，使用'您'称呼客户")
+    print("📋 完整业务流程：问候→需求收集→报价→注意事项→额外服务→耐心解答→付款")
+    print("🚫 不急催单，客户有疑问时耐心解答，分开回复")
+    print("💰 准确价格计算，包含所有确认的服务")
+    print("👤 真实个人身份，不主动介绍自己")
+    print("🔧 代填说明：用不同地区兼职小伙伴的IP地址")
+    print("🐟 闲鱼自动化：实时监控聊天列表，智能自动回复")
+    print("📨 新增功能：主动监控聊天列表，自动点击新消息")
+    print("📤 修复功能：确保每条消息都能正确发送")
+    print("📝 固定话术：问卷设计使用完整的固定话术模板")
+    print("=" * 60)
+
+    # 从环境变量获取API密钥，更安全
+    TEX_DIR = r"C:\Users\1\Desktop\闲鱼"
+    DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', "sk-7bcf5415f6bf424a896af80fbe6327e7")
+
+    trainer = DeepSeekChatbotTrainer(TEX_DIR, DEEPSEEK_API_KEY)
+
+    try:
+        trainer.train_and_run()
+    except KeyboardInterrupt:
+        print("\n👋 用户中断")
+    except Exception as e:
+        print(f"\n❌ 出错: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+if __name__ == "__main__":
+    main()
